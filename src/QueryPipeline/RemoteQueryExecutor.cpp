@@ -4,6 +4,8 @@
 
 #include <Columns/ColumnConst.h>
 #include <Common/CurrentThread.h>
+#include <Common/Exception.h>
+#include <Common/FailPoint.h>
 #include <Common/OpenTelemetryTraceContext.h>
 #include <Core/Protocol.h>
 #include <Core/Settings.h>
@@ -38,6 +40,7 @@ namespace ProfileEvents
     extern const Event ReadTaskRequestsReceived;
     extern const Event MergeTreeReadTaskRequestsReceived;
     extern const Event ParallelReplicasAvailableCount;
+    extern const Event DistributedShardTryCount;
 }
 
 namespace DB
@@ -52,6 +55,12 @@ namespace Setting
     extern const SettingsBool use_hedged_requests;
     extern const SettingsBool push_external_roles_in_interserver_queries;
     extern const SettingsMilliseconds parallel_replicas_connect_timeout_ms;
+    extern const SettingsUInt64 distributed_shard_retry_count;
+}
+
+namespace FailPoints
+{
+    extern const char remote_query_exception_after_receiving_data[];
 }
 
 namespace ErrorCodes
@@ -60,6 +69,9 @@ namespace ErrorCodes
     extern const int UNKNOWN_PACKET_FROM_SERVER;
     extern const int DUPLICATED_PART_UUIDS;
     extern const int SYSTEM_ERROR;
+    extern const int TOO_MANY_SIMULTANEOUS_QUERIES;
+    extern const int CANNOT_OPEN_FILE;
+
 }
 
 RemoteQueryExecutor::RemoteQueryExecutor(
@@ -518,7 +530,51 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::read()
     return restartQueryWithoutDuplicatedUUIDs();
 }
 
+bool RemoteQueryExecutor::isRetryAllowed(const Exception & e) const
+{
+    if (received_data)
+        return false;
+    if (e.code() == ErrorCodes::TOO_MANY_SIMULTANEOUS_QUERIES || e.code() == ErrorCodes::CANNOT_OPEN_FILE)
+        return true;
+    return false;
+}
+
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
+{
+    const Settings & current_settings = context->getSettingsRef();
+    const size_t max_tries = 1 + current_settings[Setting::distributed_shard_retry_count];
+    size_t tries_used = 0;
+
+    SCOPE_EXIT({
+        ProfileEvents::increment(ProfileEvents::DistributedShardTryCount, tries_used);
+    });
+
+    while (true)
+    {
+        try {
+            ++tries_used;
+            if (log)
+                LOG_TRACE(log, "try {} of {}", tries_used, max_tries);
+            return readAttempt();
+        }
+        catch(const Exception & err)
+        {
+            if (!isRetryAllowed(err) || tries_used >= max_tries)
+            {
+                throw;
+            }
+
+            cancel();
+            connections->disconnect();
+            sent_query = false;
+            read_context.reset();
+            if (log)
+                LOG_DEBUG(log, "try {} of {} failed due to error code {}", tries_used, max_tries, err.code());
+        }
+    }
+}
+
+RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAttempt()
 {
 #if defined(OS_LINUX)
     if (!read_context || (resent_query && recreate_read_context))
@@ -650,6 +706,7 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
                 got_duplicated_part_uuids = true;
             break;
         case Protocol::Server::Data:
+            received_data = true;
             /// Note: `packet.block.rows() > 0` means it's a header block.
             /// We can actually return it, and the first call to RemoteQueryExecutor::read
             /// will return earlier. We should consider doing it.
@@ -663,6 +720,9 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;
 
         case Protocol::Server::EndOfStream:
+            fiu_do_on(FailPoints::remote_query_exception_after_receiving_data, {
+                throw Exception(ErrorCodes::CANNOT_OPEN_FILE, "Injected CANNOT_OPEN_FILE error after receiving data");
+            });
             if (!connections->hasActiveConnections())
             {
                 finished = true;
@@ -689,12 +749,14 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;
 
         case Protocol::Server::Totals:
+            received_data = true;
             totals = packet.block;
             if (!totals.empty())
                 totals = adaptBlockStructure(totals, *header);
             break;
 
         case Protocol::Server::Extremes:
+            received_data = true;
             extremes = packet.block;
             if (!extremes.empty())
                 extremes = adaptBlockStructure(packet.block, *header);

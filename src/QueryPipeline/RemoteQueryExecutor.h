@@ -300,6 +300,11 @@ private:
       */
     bool got_duplicated_part_uuids = false;
 
+    /** Received at least 1 Protocol::Server::Data, Extremes or Totals packet, which means
+      * we must not retry the query on another replica.
+      */
+    bool received_data = false;
+
 #if defined(OS_LINUX)
     bool packet_in_progress = false;
 #endif
@@ -347,6 +352,12 @@ private:
 
     /// Process packet for read and return data block if possible.
     ReadResult processPacket(Packet packet);
+
+    ///
+    ReadResult readAttempt();
+
+    ///
+    bool isRetryAllowed(const Exception & e) const;
 };
 
 }

@@ -1133,7 +1133,9 @@ Possible values:
 
     If a shard is unavailable, ClickHouse throws an exception.
 )", 0) \
-    \
+    DECLARE(UInt64, distributed_shard_retry_count, 0, R"(
+For distributed queries, configures how many times the root executor will retry leaf executors in a shard when receiving a retryable error
+)", 0) \
     DECLARE(UInt64, parallel_distributed_insert_select, 2, R"(
 Enables parallel distributed `INSERT ... SELECT` query.
 
