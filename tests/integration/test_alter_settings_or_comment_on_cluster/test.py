@@ -221,6 +221,60 @@ def test_mixed_settings_and_comment_alter_on_cluster(started_cluster):
     )
 
 
+def test_mixed_column_comment_and_local_alter_on_cluster_rejected(started_cluster):
+    # Column comments are replicated through ZooKeeper (leader-only path), while
+    # settings and table comments are local metadata (all-replicas path). A batch
+    # mixing them fits neither path, so it is rejected on every replica before
+    # anything is applied; the user has to split it into separate queries.
+    zookeeper_path = "/clickhouse/tables/mixed_reject"
+    for node, replica in [(ch1, "r1"), (ch2, "r2")]:
+        node.query(
+            database="test_db",
+            sql=f"CREATE TABLE mixed_reject (x UInt64) ENGINE=ReplicatedMergeTree('{zookeeper_path}', '{replica}') ORDER BY tuple()",
+        )
+
+    version_before = get_zk_metadata_version(ch1, zookeeper_path)
+    for sql in [
+        "ALTER TABLE mixed_reject ON CLUSTER 'cluster' COMMENT COLUMN x 'rejected-col', MODIFY SETTING old_parts_lifetime = 456",
+        "ALTER TABLE mixed_reject ON CLUSTER 'cluster' MODIFY COMMENT 'rejected-tbl', COMMENT COLUMN x 'rejected-col'",
+        "ALTER TABLE mixed_reject ON CLUSTER 'cluster' MODIFY COLUMN x COMMENT 'rejected-col', RESET SETTING old_parts_lifetime",
+    ]:
+        error = ch1.query_and_get_error(database="test_db", sql=sql)
+        assert "cannot combine column comment changes" in error, error
+
+    assert get_zk_metadata_version(ch1, zookeeper_path) == version_before
+    for node in [ch1, ch2]:
+        show_create = node.query(
+            database="test_db", sql="SHOW CREATE mixed_reject FORMAT TSVRaw"
+        )
+        assert "rejected" not in show_create, (node.name, show_create)
+        assert "old_parts_lifetime" not in show_create, (node.name, show_create)
+
+    # The same changes as separate queries reach every replica.
+    ch1.query(
+        database="test_db",
+        sql="ALTER TABLE mixed_reject ON CLUSTER 'cluster' COMMENT COLUMN x 'split-col'",
+    )
+    ch1.query(
+        database="test_db",
+        sql="ALTER TABLE mixed_reject ON CLUSTER 'cluster' MODIFY COMMENT 'split-tbl', MODIFY SETTING old_parts_lifetime = 456",
+    )
+    for node in [ch1, ch2]:
+        show_create = wait_show_create(
+            node,
+            "mixed_reject",
+            contains=["split-col", "split-tbl", "old_parts_lifetime = 456"],
+        )
+        assert "split-col" in show_create, (node.name, show_create)
+        assert "split-tbl" in show_create, (node.name, show_create)
+        assert "old_parts_lifetime = 456" in show_create, (node.name, show_create)
+
+    ch1.query(
+        database="test_db",
+        sql="DROP TABLE mixed_reject ON CLUSTER 'cluster' SYNC",
+    )
+
+
 def test_modify_column_comment_only_on_cluster(started_cluster):
     # A pure `ALTER ... MODIFY COLUMN c COMMENT 'x'` changes the column comment,
     # which is part of the replicated /columns, so it is routed to the leader

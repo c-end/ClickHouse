@@ -293,6 +293,8 @@ public:
     /// Only settings and table comments, which are not replicated through ZooKeeper
     /// (unlike column comments, which are part of the replicated `/columns`).
     bool isSettingsOrTableCommentAlter() const;
+    /// Only column comments: `COMMENT COLUMN` or a comment-only `MODIFY COLUMN`.
+    bool isColumnCommentAlter() const;
 
     bool isReplacePartitionAlter() const;
 

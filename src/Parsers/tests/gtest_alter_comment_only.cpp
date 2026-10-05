@@ -23,6 +23,13 @@ bool isSettingsOrTableCommentAlter(const String & query)
     return ast->as<ASTAlterQuery &>().isSettingsOrTableCommentAlter();
 }
 
+bool isColumnCommentAlter(const String & query)
+{
+    ParserAlterQuery parser;
+    ASTPtr ast = parseQuery(parser, query, 0, 0, 0);
+    return ast->as<ASTAlterQuery &>().isColumnCommentAlter();
+}
+
 }
 
 /// `isSettingsOrCommentAlter` recognises `ALTER`s that only touch settings or comments,
@@ -60,4 +67,18 @@ TEST(AlterCommentOnly, SettingsOrTableComment)
     EXPECT_FALSE(isSettingsOrTableCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x'"));
     EXPECT_FALSE(isSettingsOrTableCommentAlter("ALTER TABLE t MODIFY COLUMN c COMMENT 'x'"));
     EXPECT_FALSE(isSettingsOrTableCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x', MODIFY SETTING max_part_loading_threads = 8"));
+}
+
+/// `isColumnCommentAlter` lets `DDLWorker::taskShouldBeExecutedOnLeader` reject `ON CLUSTER` batches
+/// that mix replicated column comments with local-only settings or table comments.
+TEST(AlterCommentOnly, ColumnComment)
+{
+    EXPECT_TRUE(isColumnCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x'"));
+    EXPECT_TRUE(isColumnCommentAlter("ALTER TABLE t MODIFY COLUMN c COMMENT 'x'"));
+    EXPECT_TRUE(isColumnCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x', MODIFY COLUMN d COMMENT 'y'"));
+
+    EXPECT_FALSE(isColumnCommentAlter("ALTER TABLE t MODIFY COMMENT 'x'"));
+    EXPECT_FALSE(isColumnCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x', MODIFY COMMENT 'y'"));
+    EXPECT_FALSE(isColumnCommentAlter("ALTER TABLE t COMMENT COLUMN c 'x', MODIFY SETTING max_part_loading_threads = 8"));
+    EXPECT_FALSE(isColumnCommentAlter("ALTER TABLE t MODIFY COLUMN c UInt64 COMMENT 'x'"));
 }
