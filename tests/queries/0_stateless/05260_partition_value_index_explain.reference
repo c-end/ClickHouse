@@ -1,0 +1,170 @@
+Point on the first partition key column, binary search
+Indexes:
+PartitionValueIndex
+Keys:
+tenant
+Condition: (tenant in [7, 7])
+Parts: 3/300
+Granules: 3/300
+Search Algorithm: binary search
+Min-Max
+Keys:
+tenant
+Condition: (tenant in [7, 7])
+Parts: 3/3
+Granules: 3/3
+Partition
+Keys:
+tenant
+Condition: (tenant in [7, 7])
+Parts: 3/3
+Granules: 3/3
+PrimaryKey
+Condition: true
+Parts: 3/3
+Granules: 3/3
+Ranges: 3
+321
+Point and range, binary search
+Indexes:
+PartitionValueIndex
+Keys:
+tenant
+toYYYYMMDD(ts)
+Condition: and((toYYYYMMDD(ts) in [20260102, +Inf)), (tenant in [7, 7]))
+Parts: 2/300
+Granules: 2/300
+Search Algorithm: binary search
+Min-Max
+Keys:
+tenant
+ts
+Condition: and((ts in [1767312000, +Inf)), (tenant in [7, 7]))
+Parts: 2/2
+Granules: 2/2
+Partition
+Keys:
+tenant
+toYYYYMMDD(ts)
+Condition: and((toYYYYMMDD(ts) in [20260102, +Inf)), (tenant in [7, 7]))
+Parts: 2/2
+Granules: 2/2
+PrimaryKey
+Condition: true
+Parts: 2/2
+Granules: 2/2
+Ranges: 2
+114
+Set, generic exclusion search
+Indexes:
+PartitionValueIndex
+Keys:
+tenant
+Condition: (tenant in 3-element set)
+Parts: 9/300
+Granules: 9/300
+Search Algorithm: generic exclusion search
+Min-Max
+Keys:
+tenant
+Condition: (tenant in 3-element set)
+Parts: 9/9
+Granules: 9/9
+Partition
+Keys:
+tenant
+Condition: (tenant in 3-element set)
+Parts: 9/9
+Granules: 9/9
+PrimaryKey
+Condition: true
+Parts: 9/9
+Granules: 9/9
+Ranges: 9
+1350
+Second partition key column only, generic exclusion search reaches the step limit
+Indexes:
+PartitionValueIndex
+Keys:
+toYYYYMMDD(ts)
+Condition: and((toYYYYMMDD(ts) in (-Inf, 20260103]), (toYYYYMMDD(ts) in [20260102, +Inf)))
+Parts: 300/300
+Granules: 300/300
+Search Algorithm: generic exclusion search
+Min-Max
+Keys:
+ts
+Condition: and((ts in (-Inf, 1767398399]), (ts in [1767312000, +Inf)))
+Parts: 100/300
+Granules: 100/300
+Partition
+Keys:
+toYYYYMMDD(ts)
+Condition: and((toYYYYMMDD(ts) in (-Inf, 20260103]), (toYYYYMMDD(ts) in [20260102, +Inf)))
+Parts: 100/100
+Granules: 100/100
+PrimaryKey
+Condition: true
+Parts: 100/100
+Granules: 100/100
+Ranges: 100
+14950
+Condition that does not match any partition
+Indexes:
+PartitionValueIndex
+Keys:
+tenant
+Condition: (tenant in [1000, 1000])
+Parts: 0/300
+Granules: 0/300
+Search Algorithm: binary search
+Min-Max
+Keys:
+tenant
+Condition: (tenant in [1000, 1000])
+Parts: 0/0
+Granules: 0/0
+Partition
+Keys:
+tenant
+Condition: (tenant in [1000, 1000])
+Parts: 0/0
+Granules: 0/0
+PrimaryKey
+Condition: true
+Parts: 0/0
+Granules: 0/0
+Ranges: 0
+The index is not used for a condition it cannot analyze
+0
+The index is not used for tables with fewer parts than partition_value_index_min_parts
+0
+The index is not used if disabled
+0
+String partition key, with partition IDs that are hashes
+Indexes:
+PartitionValueIndex
+Keys:
+tenant
+Condition: (tenant in [\'tenant_7\', \'tenant_7\'])
+Parts: 1/200
+Granules: 1/200
+Search Algorithm: binary search
+Min-Max
+Keys:
+tenant
+Condition: (tenant in [\'tenant_7\', \'tenant_7\'])
+Parts: 1/1
+Granules: 1/1
+Partition
+Keys:
+tenant
+Condition: (tenant in [\'tenant_7\', \'tenant_7\'])
+Parts: 1/1
+Granules: 1/1
+PrimaryKey
+Condition: true
+Parts: 1/1
+Granules: 1/1
+Ranges: 1
+214

@@ -1,0 +1,7 @@
+projection: 10	46070
+projection, set: 30	139140
+final: 10	44580
+final, range: 100	454550
+parallel replicas: 300	1496400
+transaction: 20	89150
+concurrent: 0 mismatches
