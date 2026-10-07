@@ -4,6 +4,7 @@
 
 DROP TABLE IF EXISTS t_partition_value_index;
 DROP TABLE IF EXISTS t_partition_value_index_string;
+DROP TABLE IF EXISTS t_partition_value_index_bool;
 
 -- 300 partitions with one part each.
 CREATE TABLE t_partition_value_index (tenant UInt16, ts DateTime('UTC'), v UInt64)
@@ -60,5 +61,12 @@ SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arr
 FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index_string WHERE tenant = 'tenant_7'));
 SELECT sum(v) FROM t_partition_value_index_string WHERE tenant = 'tenant_7';
 
+SELECT 'Bool partition key';
+CREATE TABLE t_partition_value_index_bool (b Bool, v UInt64) ENGINE = MergeTree PARTITION BY b ORDER BY v;
+INSERT INTO t_partition_value_index_bool SELECT number % 2, number FROM numbers(10);
+SELECT countIf(explain LIKE '%PartitionValueIndex%') FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index_bool WHERE b);
+SELECT sum(v) FROM t_partition_value_index_bool WHERE b;
+
 DROP TABLE t_partition_value_index;
 DROP TABLE t_partition_value_index_string;
+DROP TABLE t_partition_value_index_bool;

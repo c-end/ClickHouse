@@ -2958,9 +2958,11 @@ void ReadFromMergeTree::buildPartitionPruningIndexes(
     const bool skip_constant_folding = skip_partition_pruning_ || !settings[Setting::use_constant_folding_in_index_analysis];
 
     /// In debug builds, the partition value index is evaluated for small tables as well, to check its result.
-    bool may_use_partition_value_index = settings[Setting::use_partition_value_index] && num_parts >= settings[Setting::partition_value_index_min_parts];
 #if defined(DEBUG_OR_SANITIZER_BUILD)
-    may_use_partition_value_index = settings[Setting::use_partition_value_index];
+    const bool may_use_partition_value_index = settings[Setting::use_partition_value_index];
+#else
+    const bool may_use_partition_value_index
+        = settings[Setting::use_partition_value_index] && num_parts >= settings[Setting::partition_value_index_min_parts];
 #endif
     const auto & partition_key = metadata_snapshot->getPartitionKey();
     const auto data_settings = data.getSettings();

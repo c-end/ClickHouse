@@ -777,9 +777,10 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPartition(
         use_partition_index_result = parts.size() >= settings[Setting::partition_value_index_min_parts];
 
         /// In debug builds, the index is evaluated for small tables as well, to check its result (but not to use it).
-        bool evaluate_partition_index = use_partition_index_result;
 #if defined(DEBUG_OR_SANITIZER_BUILD)
-        evaluate_partition_index = true;
+        const bool evaluate_partition_index = true;
+#else
+        const bool evaluate_partition_index = use_partition_index_result;
 #endif
 
         if (evaluate_partition_index)
