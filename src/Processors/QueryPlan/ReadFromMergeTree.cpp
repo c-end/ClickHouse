@@ -2951,7 +2951,7 @@ void ReadFromMergeTree::buildPartitionPruningIndexes(
     const ContextPtr & query_context,
     const StorageMetadataPtr & metadata_snapshot,
     bool skip_partition_pruning_,
-    size_t num_parts,
+    [[maybe_unused]] size_t num_parts, /// Unused in debug builds, see below.
     bool require_ready_sets)
 {
     const auto & settings = query_context->getSettingsRef();
