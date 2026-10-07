@@ -202,7 +202,7 @@ def test_new_replica_gets_comment_from_zk(started_cluster):
 def test_new_replica_persists_comments_from_zk(started_cluster):
     """A new replica created with stale column comments adopts the comments from
     ZooKeeper not only in memory, but also in its persisted metadata, so
-    SHOW CREATE TABLE and the metadata file match the replicated /columns."""
+    SHOW CREATE TABLE and the table after DETACH/ATTACH match the replicated /columns."""
 
     node_1.query(
         "CREATE TABLE test_comment_persist (id Int64 COMMENT 'original', v String COMMENT 'v-original') "
@@ -218,20 +218,24 @@ def test_new_replica_persists_comments_from_zk(started_cluster):
         "ORDER BY id"
     )
 
-    assert get_column_comment(node_2, "test_comment_persist", "id") == "updated"
-    assert get_column_comment(node_2, "test_comment_persist", "v") == ""
+    def check_comments():
+        assert get_column_comment(node_2, "test_comment_persist", "id") == "updated"
+        assert get_column_comment(node_2, "test_comment_persist", "v") == ""
+        show_create = node_2.query(
+            "SHOW CREATE TABLE test_comment_persist FORMAT TSVRaw"
+        )
+        assert "COMMENT 'updated'" in show_create, show_create
+        assert "stale" not in show_create, show_create
+        assert "original" not in show_create, show_create
 
-    show_create = node_2.query("SHOW CREATE TABLE test_comment_persist FORMAT TSVRaw")
-    metadata_path = node_2.query(
-        "SELECT metadata_path FROM system.tables WHERE database='default' AND table='test_comment_persist'"
-    ).strip()
-    metadata_file = node_2.exec_in_container(
-        ["cat", f"/var/lib/clickhouse/{metadata_path}"]
-    )
-    for text in [show_create, metadata_file]:
-        assert "COMMENT 'updated'" in text, text
-        assert "stale" not in text, text
-        assert "original" not in text, text
+    check_comments()
+
+    # ATTACH loads the table from its persisted metadata (wherever the database
+    # disk keeps it) and does not adopt comments from ZooKeeper, so stale
+    # persisted comments would show up here.
+    node_2.query("DETACH TABLE test_comment_persist")
+    node_2.query("ATTACH TABLE test_comment_persist")
+    check_comments()
 
     node_1.query("DROP TABLE test_comment_persist SYNC")
     node_2.query("DROP TABLE test_comment_persist SYNC")
