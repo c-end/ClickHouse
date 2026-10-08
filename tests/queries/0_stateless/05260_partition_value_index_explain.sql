@@ -15,6 +15,8 @@ SELECT number % 10, toDateTime('2026-01-01 00:00:00', 'UTC') + (number % 3) * 86
 FROM numbers(30) SETTINGS max_partitions_per_insert_block = 0;
 
 SET partition_value_index_min_parts = 0;
+-- With parallel replicas, the plan does not show the indexes of the read.
+SET enable_parallel_replicas = 0;
 -- The result of the generic exclusion search depends on the granularity, and the conditions shown on the preimage optimization.
 SET merge_tree_coarse_index_granularity = 8;
 SET optimize_time_filter_with_preimage = 1;
