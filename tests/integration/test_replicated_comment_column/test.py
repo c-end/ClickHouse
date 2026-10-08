@@ -9,6 +9,8 @@ Verifies that:
 4. A subsequent real ALTER from another replica does not overwrite the comment.
 """
 
+import uuid
+
 import pytest
 from helpers.cluster import ClickHouseCluster
 from helpers.test_tools import assert_eq_with_retry
@@ -239,6 +241,71 @@ def test_new_replica_persists_comments_from_zk(started_cluster):
 
     node_1.query("DROP TABLE test_comment_persist SYNC")
     node_2.query("DROP TABLE test_comment_persist SYNC")
+
+
+def test_full_attach_keeps_comments_consistent(started_cluster):
+    """A full-definition ATTACH of an existing replica does not adopt column
+    comments from ZooKeeper: the in-memory metadata and the persisted definition
+    both keep the comments from the ATTACH query, before and after a reattach."""
+
+    for node in [node_1, node_2]:
+        node.query(
+            "CREATE TABLE test_comment_attach (id Int64 COMMENT 'original') "
+            "ENGINE=ReplicatedMergeTree('/clickhouse/test_comment_attach', '{replica}') "
+            "ORDER BY id"
+        )
+
+    node_1.query("ALTER TABLE test_comment_attach COMMENT COLUMN id 'updated'")
+    assert_eq_with_retry(
+        node_2,
+        "SELECT comment FROM system.columns WHERE database='default' AND table='test_comment_attach' AND name='id'",
+        "updated",
+    )
+
+    # Attach the existing replica again with a full definition carrying a different
+    # comment. The detached table keeps its UUID, so the new one gets a fresh UUID
+    # and name, but it uses the same ZooKeeper path and replica name.
+    node_2.query("DETACH TABLE test_comment_attach SYNC")
+    node_2.query(
+        f"ATTACH TABLE test_comment_attach_full UUID '{uuid.uuid4()}' (id Int64 COMMENT 'attached') "
+        "ENGINE=ReplicatedMergeTree('/clickhouse/test_comment_attach', '{replica}') "
+        "ORDER BY id"
+    )
+
+    def check_comments():
+        # Wait for the attach thread to finish initialization, so its checks against
+        # ZooKeeper have run before the comments are compared.
+        assert_eq_with_retry(
+            node_2,
+            "SELECT is_readonly FROM system.replicas WHERE database='default' AND table='test_comment_attach_full'",
+            "0",
+        )
+        assert get_column_comment(node_2, "test_comment_attach_full", "id") == "attached"
+        show_create = node_2.query(
+            "SHOW CREATE TABLE test_comment_attach_full FORMAT TSVRaw"
+        )
+        assert "COMMENT 'attached'" in show_create, show_create
+        assert "updated" not in show_create, show_create
+
+    check_comments()
+
+    # A short ATTACH loads the table from the persisted definition.
+    node_2.query("DETACH TABLE test_comment_attach_full")
+    node_2.query("ATTACH TABLE test_comment_attach_full")
+    check_comments()
+
+    # The other replica and ZooKeeper are not affected by the local ATTACH.
+    assert get_column_comment(node_1, "test_comment_attach", "id") == "updated"
+    assert "updated" in get_zk_columns(
+        node_1, get_zk_table_path(node_1, "test_comment_attach")
+    )
+
+    node_1.query("DROP TABLE test_comment_attach SYNC")
+    node_2.query("DROP TABLE test_comment_attach_full SYNC")
+    # The original table is still detached and its replica is gone from ZooKeeper,
+    # so it is attached read-only only to drop it.
+    node_2.query("ATTACH TABLE test_comment_attach")
+    node_2.query("DROP TABLE test_comment_attach SYNC")
 
 
 def test_comment_preserved_after_add_column(started_cluster):
