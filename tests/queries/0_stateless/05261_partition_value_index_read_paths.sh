@@ -51,24 +51,25 @@ $CLICKHOUSE_CLIENT -q "
     SYSTEM STOP MERGES t_pvi_final;"
 
 $CLICKHOUSE_CLIENT --max_partitions_per_insert_block 0 -q "
-    INSERT INTO t_pvi_projection SELECT number % 100, number % 1000, number FROM numbers(10000);
+    INSERT INTO t_pvi_projection SELECT number % 20, number % 1000, number FROM numbers(2000);
 
-    INSERT INTO t_pvi_final SELECT number % 100, number % 1000, number FROM numbers(5000);
-    INSERT INTO t_pvi_final SELECT number % 100, number % 1000, number + 1 FROM numbers(5000);
+    INSERT INTO t_pvi_final SELECT number % 20, number % 100, number FROM numbers(1000);
+    INSERT INTO t_pvi_final SELECT number % 20, number % 100, number + 1 FROM numbers(1000);
 
-    INSERT INTO t_pvi_concurrent SELECT number % 50, number FROM numbers(5000);"
+    INSERT INTO t_pvi_concurrent SELECT number % 10, number FROM numbers(1000);"
 
 compare "projection" "SELECT count(), sum(v) FROM t_pvi_projection WHERE tenant = 7 AND k = 107" --optimize_use_projections 1
-compare "projection, set" "SELECT count(), sum(v) FROM t_pvi_projection WHERE tenant IN (7, 8, 99) AND k BETWEEN 100 AND 200" --optimize_use_projections 1
+compare "projection, set" "SELECT count(), sum(v) FROM t_pvi_projection WHERE tenant IN (7, 8, 19) AND k BETWEEN 100 AND 200" --optimize_use_projections 1
 
 compare "final" "SELECT count(), sum(v) FROM t_pvi_final FINAL WHERE tenant = 7"
-compare "final, range" "SELECT count(), sum(v) FROM t_pvi_final FINAL WHERE tenant >= 90"
+compare "final, range" "SELECT count(), sum(v) FROM t_pvi_final FINAL WHERE tenant >= 15"
 
-compare "parallel replicas" "SELECT count(), sum(v) FROM t_pvi_projection WHERE tenant IN (7, 8, 99)" \
+compare "parallel replicas" "SELECT count(), sum(v) FROM t_pvi_projection WHERE tenant IN (7, 8, 19)" \
     --enable_parallel_replicas 1 --parallel_replicas_for_non_replicated_merge_tree 1 --max_parallel_replicas 3 \
     --cluster_for_parallel_replicas parallel_replicas --parallel_replicas_local_plan 1
 
-compare "transaction" "BEGIN TRANSACTION; SELECT count(), sum(v) FROM t_pvi_final WHERE tenant = 7; COMMIT;"
+# A plain `MergeTree` table, so that the result does not depend on `optimize_on_insert` (randomized in CI).
+compare "transaction" "BEGIN TRANSACTION; SELECT count(), sum(v) FROM t_pvi_concurrent WHERE tenant = 7; COMMIT;"
 
 # New partitions appear and partitions are dropped concurrently with the queries. The concurrent changes affect
 # only the tenants from 100, so the result of the queries for tenant 7 does not change.
@@ -77,8 +78,8 @@ function change_partitions()
     local i=0
     while [ "$(date +%s)" -lt "$1" ]
     do
-        $CLICKHOUSE_CLIENT -q "INSERT INTO t_pvi_concurrent SELECT 100 + $i % 100, number FROM numbers(10)"
-        $CLICKHOUSE_CLIENT -q "ALTER TABLE t_pvi_concurrent DROP PARTITION $((100 + (i + 50) % 100))"
+        $CLICKHOUSE_CLIENT -q "INSERT INTO t_pvi_concurrent SELECT 100 + $i % 20, number FROM numbers(10)"
+        $CLICKHOUSE_CLIENT -q "ALTER TABLE t_pvi_concurrent DROP PARTITION $((100 + (i + 10) % 20))"
         i=$((i + 1))
     done
 }

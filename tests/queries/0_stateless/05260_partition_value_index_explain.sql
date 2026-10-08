@@ -6,13 +6,13 @@ DROP TABLE IF EXISTS t_partition_value_index;
 DROP TABLE IF EXISTS t_partition_value_index_string;
 DROP TABLE IF EXISTS t_partition_value_index_bool;
 
--- 300 partitions with one part each.
+-- 30 partitions (10 tenants, 3 days) with one part each.
 CREATE TABLE t_partition_value_index (tenant UInt16, ts DateTime('UTC'), v UInt64)
 ENGINE = MergeTree PARTITION BY (tenant, toYYYYMMDD(ts)) ORDER BY v;
 
 INSERT INTO t_partition_value_index
-SELECT number % 100, toDateTime('2026-01-01 00:00:00', 'UTC') + (number % 3) * 86400, number
-FROM numbers(300) SETTINGS max_partitions_per_insert_block = 0;
+SELECT number % 10, toDateTime('2026-01-01 00:00:00', 'UTC') + (number % 3) * 86400, number
+FROM numbers(30) SETTINGS max_partitions_per_insert_block = 0;
 
 SET partition_value_index_min_parts = 0;
 -- The result of the generic exclusion search depends on the granularity, and the conditions shown on the preimage optimization.
@@ -31,15 +31,20 @@ SELECT sum(v) FROM t_partition_value_index WHERE tenant = 7 AND ts >= toDateTime
 
 SELECT 'Set, generic exclusion search';
 SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arrayFirstIndex(x -> trimLeft(x) = 'Indexes:', groupArray(explain)))) AS line
-FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index WHERE tenant IN (1, 50, 99)));
-SELECT sum(v) FROM t_partition_value_index WHERE tenant IN (1, 50, 99);
+FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index WHERE tenant IN (1, 5, 9)));
+SELECT sum(v) FROM t_partition_value_index WHERE tenant IN (1, 5, 9);
 
--- Every tenant has a partition for the day, so the search would have to check almost every partition one by one.
--- It stops at its step limit and selects the remaining partitions as a whole, which are then checked part by part.
-SELECT 'Second partition key column only, generic exclusion search reaches the step limit';
+SELECT 'Second partition key column only, generic exclusion search';
 SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arrayFirstIndex(x -> trimLeft(x) = 'Indexes:', groupArray(explain)))) AS line
 FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index WHERE toYYYYMMDD(ts) = 20260102));
 SELECT sum(v) FROM t_partition_value_index WHERE toYYYYMMDD(ts) = 20260102;
+
+-- With a tiny step budget, the search stops at its step limit and selects the remaining partitions as a whole,
+-- which are then checked part by part.
+SELECT 'Second partition key column only, generic exclusion search reaches the step limit';
+SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arrayFirstIndex(x -> trimLeft(x) = 'Indexes:', groupArray(explain)))) AS line
+FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index WHERE toYYYYMMDD(ts) = 20260102 SETTINGS partition_value_index_max_steps = 1));
+SELECT sum(v) FROM t_partition_value_index WHERE toYYYYMMDD(ts) = 20260102 SETTINGS partition_value_index_max_steps = 1;
 
 SELECT 'Condition that does not match any partition';
 SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arrayFirstIndex(x -> trimLeft(x) = 'Indexes:', groupArray(explain)))) AS line
@@ -56,7 +61,7 @@ SELECT countIf(explain LIKE '%PartitionValueIndex%') FROM (EXPLAIN indexes = 1 S
 
 SELECT 'String partition key, with partition IDs that are hashes';
 CREATE TABLE t_partition_value_index_string (tenant String, v UInt64) ENGINE = MergeTree PARTITION BY tenant ORDER BY v;
-INSERT INTO t_partition_value_index_string SELECT concat('tenant_', toString(number % 200)), number FROM numbers(400) SETTINGS max_partitions_per_insert_block = 0;
+INSERT INTO t_partition_value_index_string SELECT concat('tenant_', toString(number % 20)), number FROM numbers(40) SETTINGS max_partitions_per_insert_block = 0;
 SELECT trimLeft(line) FROM (SELECT arrayJoin(arraySlice(groupArray(explain), arrayFirstIndex(x -> trimLeft(x) = 'Indexes:', groupArray(explain)))) AS line
 FROM (EXPLAIN indexes = 1 SELECT sum(v) FROM t_partition_value_index_string WHERE tenant = 'tenant_7'));
 SELECT sum(v) FROM t_partition_value_index_string WHERE tenant = 'tenant_7';
